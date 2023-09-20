@@ -1,3 +1,4 @@
+import sys
 import bpy
 from bpy.types import Context
 from typing import *
@@ -5,15 +6,20 @@ from typing import *
 from mathutils import *
 import math
 
+from smooth_normals.properties import *
+
 class SmoothNormalsOperator(bpy.types.Operator):
     bl_idname = 'smooth_normals.smooth_normals_operator'
     bl_label = 'Smooth Normals'
 
     def execute(self, context: Context) -> Set[str] | Set[int]:
         objects = context.selected_objects
+        scene = context.scene
+
+        properties : SmoothNormalPropertyies = scene.smoothNormalPropertyies
 
         for object in objects:
-            Utils.do_smooth_normals(object.data)
+            Utils.do_smooth_normals(object.data, properties)
         
         return {'FINISHED'}
     
@@ -30,16 +36,15 @@ class VertexNormals:
     
 class Utils:
     @staticmethod
-    def do_smooth_normals(mesh : bpy.types.Mesh) -> None:
+    def do_smooth_normals(mesh : bpy.types.Mesh, properties : SmoothNormalPropertyies) -> None:
         if (mesh):
             mesh.calc_normals_split()
             mesh.calc_tangents()
 
             vertices_group : Dict[Tuple, List[VertexNormals]] = {}
             pack_normals : List[Vector] = [None] * len(mesh.loops)
-            smooth_mormals : List[Vector] = [None] * len(mesh.loops)
+            smooth_normals : List[Vector] = [None] * len(mesh.loops)
 
-            vertex_normals : List[Vector] = [None] * len(mesh.loops)
             vertex_tangents : List[Vector] = [None] * len(mesh.loops)
             vertex_bitangents : List[Vector] = [None] * len(mesh.loops)
 
@@ -74,7 +79,6 @@ class Utils:
                     normals.append(normal)
                     weights.append(angle)
 
-                    vertex_normals[index] = normal
                     vertex_tangents[index] = tangent
                     vertex_bitangents[index] = bitangent
 
@@ -87,41 +91,50 @@ class Utils:
 
             # Calculate smooth normals
             for key, value in vertices_group.items():
-                smooth_mormal = Vector()
+                smooth_normal = Vector()
                 smooth_weight_total = 0.0
                 for v in value:
-                    smooth_weight_total += v.weight
+                    smooth_weight_total += 1.0 # v.weight
 
                 smooth_weight_total = 1.0 / smooth_weight_total
 
                 for v in value:
-                    smooth_mormal += v.normal * v.weight * smooth_weight_total
+                    smooth_normal += v.normal * smooth_weight_total # * v.weight * smooth_weight_total
 
-                Vector.normalize(smooth_mormal)
+                Vector.normalize(smooth_normal)
                 for v in value:
-                    smooth_mormals[v.index] = smooth_mormal
+                    smooth_normals[v.index] = smooth_normal
 
-            # Turn smooth normals from Object to Tangent space
-            for index in range(0, len(mesh.loops)):
-                normal_OS = vertex_normals[index].copy()
-                tangent_OS = vertex_tangents[index].copy()
-                bitangent_OS = vertex_bitangents[index].copy()
-                normal_OS.resize_4d()
-                tangent_OS.resize_4d()
-                bitangent_OS.resize_4d()
-                # tangent_OS.w = 0.0
+            if properties.write_channel == '0':
+                # Turn smooth normals from Object to Tangent space
+                for index in range(0, len(mesh.loops)):
+                    vertex_index = mesh.loops[index].vertex_index
+                    normal_OS = mesh.vertex_normals[vertex_index].vector.copy() # vertex_normals[index].copy()
+                    tangent_OS = vertex_tangents[index].copy()
+                    bitangent_OS = Vector.cross(normal_OS, tangent_OS) # vertex_bitangents[index].copy()
+                    normal_OS.resize_4d()
+                    tangent_OS.resize_4d()
+                    bitangent_OS.resize_4d()
+                    # tangent_OS.w = 0.0
 
-                tbn = Matrix.Identity(4)
-                tbn[0] = Vector.normalized(tangent_OS)
-                tbn[1] = Vector.normalized(bitangent_OS)
-                tbn[2] = Vector.normalized(normal_OS)
+                    tbn = Matrix.Identity(4)
+                    tbn[0] = Vector.normalized(tangent_OS)
+                    tbn[1] = Vector.normalized(bitangent_OS)
+                    tbn[2] = Vector.normalized(normal_OS)
 
-                smooth_normal_TS = tbn @ smooth_mormals[index]
-                pack_normals[index] = Utils.pack_normal_oct_quad_encode(smooth_normal_TS.normalized())
+                    smooth_normal_TS = tbn @ smooth_normals[index]
+                    pack_normals[index] = Utils.pack_normal_oct_quad_encode(smooth_normal_TS.normalized())
 
+                # Write pack normals in uv
+                Utils.write_pack_normals_to_uv2(mesh, pack_normals)
+            
+            elif properties.write_channel == '1':
+                Utils.write_pack_normals_to_tangent(mesh, smooth_normals)
 
-            # Write pack normals in uv
-            Utils.write_pack_normals_to_uv2(mesh, pack_normals)
+    @staticmethod
+    def write_pack_normals_to_tangent(mesh : bpy.types.Mesh, smooth_normals):
+        for loop in mesh.loops:
+            loop.tangent = smooth_normals[loop.index]
 
     @staticmethod
     def write_pack_normals_to_uv2(mesh : bpy.types.Mesh, pack_normals):
@@ -160,6 +173,9 @@ class Utils:
 
     @staticmethod
     def calc_angle(v1 : Vector, v2 : Vector):
+        if v1.length_squared == 0 or v2.length_squared == 0:
+            return math.acos(0)
+        
         v1.normalize()
         v2.normalize()
         return math.acos(Vector.dot(v1, v2))

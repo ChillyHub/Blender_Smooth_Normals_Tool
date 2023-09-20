@@ -22,12 +22,20 @@ bl_info = {
     "category" : "Mesh"
 }
 
+import sys
+import bpy
+
 from . import auto_load
+from . import properties
 
 auto_load.init()
 
 def register():
     auto_load.register()
 
+    bpy.types.Scene.smoothNormalPropertyies = bpy.props.PointerProperty(type = properties.SmoothNormalPropertyies)
+
 def unregister():
     auto_load.unregister()
+
+    del bpy.types.Scene.smoothNormalPropertyies

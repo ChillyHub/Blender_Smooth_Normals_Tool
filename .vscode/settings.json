@@ -1,0 +1,9 @@
+{
+    "python.analysis.extraPaths": [
+        "d:\\Programs\\DCC\\Blender\\Fake_bpy\\fake_bpy_modules_3.2-20230117",
+        "d:\\Programs\\DCC\\Blender\\Blender 3.2\\3.2\\scripts\\modules",
+        "d:\\Programs\\DCC\\Blender\\Fake_bpy\\fake_bpy_modules_3.1-20230117",
+        "d:\\Programs\\DCC\\Blender\\Blender 3.1\\3.1\\scripts\\modules",
+        "./smooth_normals"
+    ]
+}
